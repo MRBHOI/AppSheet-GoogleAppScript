@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Pincode Lookup App
 
 A simple Tkinter-based desktop application to look up Indian postal pincode details using the India Post API.
@@ -50,3 +51,7 @@ The files are saved to:
 - The app validates that pincodes are exactly 6 digits.
 - Network requests are done in a background thread to keep the UI responsive.
 - Duplicate pincode lookups reuse cached details when available.
+=======
+# AppSheet-GoogleAppScript
+Build a simple app where a user enters a pincode and gets location details automatically
+>>>>>>> f1571fe2c5e72e1e1648dd6331a51d62a87661e7
