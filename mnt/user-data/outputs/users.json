@@ -1,0 +1,12 @@
+[
+  {
+    "UserID": 1,
+    "Name": "Aditya Sharma",
+    "Email": "aditya@example.com"
+  },
+  {
+    "UserID": 2,
+    "Name": "Priya Nair",
+    "Email": "priya@example.com"
+  }
+]

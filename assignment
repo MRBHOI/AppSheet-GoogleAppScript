@@ -1,0 +1,311 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import requests
+import json
+import os
+import threading
+import time
+from datetime import datetime
+
+INDIA_POST_API = "https://api.postalpincode.in/pincode/{}"
+
+
+users = []
+
+pincode_input = []
+pincode_details = []
+
+
+def find_user_by_email(email):
+    for u in users:
+        if u["Email"].lower() == email.lower():
+            return u
+    return None
+
+
+def already_have_details(pincode):
+    for row in pincode_details:
+        if row["Pincode"] == pincode:
+            return row
+    return None
+
+
+def fetch_pincode_details(pincode):
+    url = INDIA_POST_API.format(pincode)
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    }
+    
+    for attempt in range(3):
+        try:
+            response = requests.get(url, timeout=10, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+
+            if not data or data[0].get("Status") != "Success":
+                return None
+
+            post_office = data[0]["PostOffice"][0]
+            return {
+                "Pincode": pincode,
+                "District": post_office.get("District", ""),
+                "State": post_office.get("State", ""),
+                "Region": post_office.get("Region", ""),
+            }
+        except requests.ConnectionError:
+            if attempt < 2:
+                time.sleep(2)
+                continue
+            raise
+        except Exception as e:
+            raise
+
+    return None
+
+
+def export_tables_to_json(folder="mnt/user-data/outputs"):
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "users.json"), "w") as f:
+        json.dump(users, f, indent=2)
+    with open(os.path.join(folder, "pincode_input.json"), "w") as f:
+        json.dump(pincode_input, f, indent=2)
+    with open(os.path.join(folder, "pincode_details.json"), "w") as f:
+        json.dump(pincode_details, f, indent=2)
+
+
+
+# GUI
+
+class PincodeApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Pincode Lookup")
+        self.geometry("420x520")
+        self.resizable(False, False)
+
+        self.current_user = None
+
+        
+        self.container = ttk.Frame(self)
+        self.container.pack(fill="both", expand=True)
+
+        self.show_auth_screen()
+
+    # ---- screen management 
+    def clear_container(self):
+        for widget in self.container.winfo_children():
+            widget.destroy()
+
+    # ---- Auth screen (Sign up / Login)
+    def show_auth_screen(self):
+        self.clear_container()
+
+        ttk.Label(self.container, text="Pincode Lookup", font=("Segoe UI", 18, "bold")).pack(pady=(40, 30))
+
+        button_frame = ttk.Frame(self.container)
+        button_frame.pack(pady=20)
+
+        ttk.Button(button_frame, text="Sign Up", command=self.show_signup_screen, width=15).pack(pady=8)
+        ttk.Button(button_frame, text="Login", command=self.show_login_screen, width=15).pack(pady=8)
+
+    # ---- Sign up screen 
+    def show_signup_screen(self):
+        self.clear_container()
+
+        ttk.Label(self.container, text="Create Account", font=("Segoe UI", 16, "bold")).pack(pady=(30, 20))
+
+        ttk.Label(self.container, text="Name").pack(pady=(10, 0))
+        self.signup_name_entry = ttk.Entry(self.container, width=30)
+        self.signup_name_entry.pack(pady=5)
+        self.signup_name_entry.focus()
+
+        ttk.Label(self.container, text="Email").pack(pady=(10, 0))
+        self.signup_email_entry = ttk.Entry(self.container, width=30)
+        self.signup_email_entry.pack(pady=5)
+
+        ttk.Button(self.container, text="Sign Up", command=self.handle_signup).pack(pady=15)
+
+        self.signup_status = ttk.Label(self.container, text="", foreground="red")
+        self.signup_status.pack()
+
+        ttk.Button(self.container, text="Back", command=self.show_auth_screen).pack(pady=10)
+
+    def handle_signup(self):
+        name = self.signup_name_entry.get().strip()
+        email = self.signup_email_entry.get().strip()
+
+        if not name or not email:
+            self.signup_status.config(text="Name and Email are required.", foreground="red")
+            return
+
+        if "@" not in email or "." not in email:
+            self.signup_status.config(text="Invalid email format.", foreground="red")
+            return
+
+        if find_user_by_email(email):
+            self.signup_status.config(text="Email already registered.", foreground="red")
+            return
+
+        # Add new user
+        new_user = {
+            "UserID": len(users) + 1,
+            "Name": name,
+            "Email": email
+        }
+        users.append(new_user)
+        
+        self.signup_status.config(text="Account created! Redirecting to login...", foreground="green")
+        self.after(1500, self.show_login_screen)
+
+    # ---- Login screen 
+    def show_login_screen(self):
+        self.clear_container()
+
+        ttk.Label(self.container, text="Login", font=("Segoe UI", 16, "bold")).pack(pady=(30, 10))
+        ttk.Label(self.container, text="Email").pack(pady=(10, 0))
+
+        self.email_entry = ttk.Entry(self.container, width=30)
+        self.email_entry.pack(pady=5)
+        self.email_entry.focus()
+        self.email_entry.bind("<Return>", lambda e: self.handle_login())
+
+        ttk.Button(self.container, text="Login", command=self.handle_login).pack(pady=15)
+
+        self.login_status = ttk.Label(self.container, text="", foreground="red")
+        self.login_status.pack()
+
+        ttk.Button(self.container, text="Back", command=self.show_auth_screen).pack(pady=10)
+
+    def handle_login(self):
+        email = self.email_entry.get().strip()
+        user = find_user_by_email(email)
+
+        if not user:
+            self.login_status.config(text="No account found with that email.")
+            return
+
+        self.current_user = user
+        self.show_main_screen()
+
+    # ---- Main screen (enter pincode + results) 
+    def show_main_screen(self):
+        self.clear_container()
+
+        ttk.Label(
+            self.container,
+            text=f"Welcome, {self.current_user['Name']}",
+            font=("Segoe UI", 14, "bold"),
+        ).pack(pady=(20, 15))
+
+        entry_frame = ttk.Frame(self.container)
+        entry_frame.pack(pady=5)
+
+        ttk.Label(entry_frame, text="Pincode:").grid(row=0, column=0, padx=5)
+        self.pincode_entry = ttk.Entry(entry_frame, width=15)
+        self.pincode_entry.grid(row=0, column=1, padx=5)
+        self.pincode_entry.bind("<Return>", lambda e: self.handle_fetch())
+
+        self.fetch_button = ttk.Button(self.container, text="Fetch Details", command=self.handle_fetch)
+        self.fetch_button.pack(pady=10)
+
+        self.status_label = ttk.Label(self.container, text="", foreground="blue")
+        self.status_label.pack()
+
+        # results box
+        results_frame = ttk.LabelFrame(self.container, text="Details")
+        results_frame.pack(fill="x", padx=20, pady=10)
+
+        self.result_vars = {
+            "Pincode": tk.StringVar(),
+            "District": tk.StringVar(),
+            "State": tk.StringVar(),
+            "Region": tk.StringVar(),
+        }
+
+        for i, field in enumerate(self.result_vars):
+            ttk.Label(results_frame, text=f"{field}:").grid(row=i, column=0, sticky="w", padx=10, pady=4)
+            ttk.Label(results_frame, textvariable=self.result_vars[field]).grid(row=i, column=1, sticky="w", padx=10, pady=4)
+
+        # history list
+        ttk.Label(self.container, text="Lookup History").pack(pady=(5, 0))
+        self.history_list = tk.Listbox(self.container, height=4)
+        self.history_list.pack(fill="x", padx=20, pady=5)
+
+        bottom_frame = ttk.Frame(self.container)
+        bottom_frame.pack(pady=10)
+
+        ttk.Button(bottom_frame, text="Save & Export", command=self.handle_export).grid(row=0, column=0, padx=5)
+        ttk.Button(bottom_frame, text="Logout", command=self.handle_logout).grid(row=0, column=1, padx=5)
+
+    def handle_fetch(self):
+        pincode = self.pincode_entry.get().strip()
+
+        if not (pincode.isdigit() and len(pincode) == 6):
+            messagebox.showerror("Invalid Pincode", "Pincode must be exactly 6 digits.")
+            return
+
+        pincode_input.append({
+            "UserID": self.current_user["UserID"],
+            "Pincode": pincode,
+            "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        })
+
+        cached = already_have_details(pincode)
+        if cached:
+            self.display_result(cached)
+            return
+
+        self.fetch_button.config(state="disabled")
+        self.status_label.config(text="Fetching...")
+
+        thread = threading.Thread(target=self._fetch_worker, args=(pincode,), daemon=True)
+        thread.start()
+
+    def _fetch_worker(self, pincode):
+        try:
+            details = fetch_pincode_details(pincode)
+        except requests.ConnectionError as e:
+            self.after(0, lambda e=e: self.handle_fetch_error(f"Connection failed. Please check your internet."))
+            return
+        except requests.Timeout as e:
+            self.after(0, lambda e=e: self.handle_fetch_error("Request timed out. Please try again."))
+            return
+        except requests.RequestException as e:
+            self.after(0, lambda e=e: self.handle_fetch_error(str(e)))
+            return
+
+        if details is None:
+            self.after(0, lambda: self.handle_fetch_error("No details found for that pincode."))
+            return
+
+        pincode_details.append(details)
+        self.after(0, lambda: self.display_result(details))
+
+    def handle_fetch_error(self, message):
+        self.fetch_button.config(state="normal")
+        self.status_label.config(text="")
+        messagebox.showerror("Lookup Failed", message)
+
+    def display_result(self, details):
+        self.fetch_button.config(state="normal")
+        self.status_label.config(text="Done.")
+
+        for field, var in self.result_vars.items():
+            var.set(details[field])
+
+        entry_text = f"{details['Pincode']} - {details['District']}, {details['State']}"
+        self.history_list.insert(tk.END, entry_text)
+        self.pincode_entry.delete(0, tk.END)
+
+    def handle_export(self):
+        export_tables_to_json()
+        messagebox.showinfo("Saved", "Data exported to mnt/user-data/outputs")
+
+    def handle_logout(self):
+        self.current_user = None
+        self.show_auth_screen()
+
+
+if __name__ == "__main__":
+    app = PincodeApp()
+    app.mainloop()
